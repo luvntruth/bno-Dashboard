@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cd bno-intern-onboarding-hub && npm run build",
+  "buildCommand": "cd bno-intern-onboarding-hub && npm install && npm run build",
   "outputDirectory": "bno-intern-onboarding-hub/dist",
   "rewrites": [
     {
