@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd bno-intern-onboarding-hub && npm run build",
+  "outputDirectory": "bno-intern-onboarding-hub/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
