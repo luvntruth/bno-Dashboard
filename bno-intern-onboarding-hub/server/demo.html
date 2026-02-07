@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BnO 실시간 동기화 테스트</title>
+  <style>
+    body { font-family: 'Segoe UI', system-ui, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; background: #f5f5f5; }
+    h1 { color: #333; }
+    .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .panel { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    .panel h2 { margin-top: 0; color: #0066cc; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }
+    .status { padding: 10px; margin: 10px 0; border-radius: 4px; font-size: 14px; }
+    .status.connected { background: #d4edda; color: #155724; }
+    .status.disconnected { background: #f8d7da; color: #721c24; }
+    textarea { width: 100%; height: 60px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    button { background: #0066cc; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; margin-top: 10px; }
+    button:hover { background: #0052a3; }
+    .comments { max-height: 300px; overflow-y: auto; margin-top: 10px; }
+    .comment { background: #f9f9f9; padding: 10px; margin: 5px 0; border-left: 3px solid #0066cc; border-radius: 2px; font-size: 12px; }
+    .comment-author { font-weight: bold; color: #0066cc; }
+    .comment-time { color: #999; font-size: 11px; }
+    .comment-text { margin-top: 5px; }
+    .sync-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: #999; margin-left: 5px; }
+    .sync-indicator.active { background: #28a745; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  </style>
+</head>
+<body>
+  <h1>🔄 BnO 온보딩 허브 — 실시간 동기화 테스트 <span class="sync-indicator" id="syncIndicator"></span></h1>
+  <p style="color: #666;">두 탭을 열고 한쪽에서 댓글을 추가하면 다른 탭에 실시간으로 나타납니다.</p>
+  
+  <div class="container">
+    <div class="panel">
+      <h2>클라이언트 1</h2>
+      <div id="status1" class="status disconnected">연결 중...</div>
+      <div>
+        <label>댓글 작성 (클라이언트 1):</label>
+        <textarea id="comment1" placeholder="댓글을 입력하세요..."></textarea>
+        <button onclick="addComment('client1')">댓글 추가</button>
+      </div>
+      <div style="margin-top: 20px;">
+        <strong>수신된 댓글 (실시간):</strong>
+        <div id="comments1" class="comments"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>클라이언트 2</h2>
+      <div id="status2" class="status disconnected">연결 중...</div>
+      <div>
+        <label>댓글 작성 (클라이언트 2):</label>
+        <textarea id="comment2" placeholder="댓글을 입력하세요..."></textarea>
+        <button onclick="addComment('client2')">댓글 추가</button>
+      </div>
+      <div style="margin-top: 20px;">
+        <strong>수신된 댓글 (실시간):</strong>
+        <div id="comments2" class="comments"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const clients = {};
+    let syncActive = false;
+
+    function initClient(clientId) {
+      const commentsDiv = document.getElementById(`comments${clientId.slice(-1)}`);
+      const statusDiv = document.getElementById(`status${clientId.slice(-1)}`);
+      
+      // SSE 연결
+      const eventSource = new EventSource('/api/events');
+      let isConnected = false;
+
+      eventSource.onopen = () => {
+        isConnected = true;
+        syncActive = true;
+        updateSyncIndicator();
+        statusDiv.className = 'status connected';
+        statusDiv.textContent = '✓ 서버 연결됨';
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && data.weeklyComments) {
+            commentsDiv.innerHTML = '';
+            Object.keys(data.weeklyComments).forEach(weekKey => {
+              (data.weeklyComments[weekKey] || []).forEach(comment => {
+                const el = document.createElement('div');
+                el.className = 'comment';
+                const time = new Date(comment.timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                el.innerHTML = `
+                  <div><span class="comment-author">${comment.author}</span> <span class="comment-time">${time}</span></div>
+                  <div class="comment-text">${comment.text}</div>
+                `;
+                commentsDiv.appendChild(el);
+              });
+            });
+            commentsDiv.scrollTop = commentsDiv.scrollHeight;
+          }
+        } catch (e) {
+          console.error('Parse error:', e);
+        }
+      };
+
+      eventSource.onerror = () => {
+        isConnected = false;
+        syncActive = false;
+        updateSyncIndicator();
+        statusDiv.className = 'status disconnected';
+        statusDiv.textContent = '✗ 연결 끊김';
+        eventSource.close();
+      };
+
+      clients[clientId] = { eventSource, isConnected };
+    }
+
+    function addComment(clientId) {
+      const textareaId = `comment${clientId.slice(-1)}`;
+      const textarea = document.getElementById(textareaId);
+      const text = textarea.value.trim();
+
+      if (!text) {
+        alert('댓글을 입력해주세요.');
+        return;
+      }
+
+      const payload = {
+        schedule: null,
+        completedTasks: [],
+        weeklyComments: {
+          '0': [{
+            id: Math.random().toString(36).substr(2, 9),
+            text: text,
+            author: `${clientId}`,
+            timestamp: Date.now()
+          }]
+        },
+        userName: clientId,
+        lastUpdated: Date.now()
+      };
+
+      fetch('/api/state', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+        .then(res => res.json())
+        .then(() => {
+          textarea.value = '';
+          console.log(`${clientId}: 댓글 전송 완료`);
+        })
+        .catch(err => console.error('Error:', err));
+    }
+
+    function updateSyncIndicator() {
+      const indicator = document.getElementById('syncIndicator');
+      if (syncActive) {
+        indicator.className = 'sync-indicator active';
+      } else {
+        indicator.className = 'sync-indicator';
+      }
+    }
+
+    // 두 클라이언트 초기화
+    initClient('client1');
+    initClient('client2');
+  </script>
+</body>
+</html>
