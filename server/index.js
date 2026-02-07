@@ -78,7 +78,12 @@ app.post('/api/gemini', async (req, res) => {
   }
 });
 
-// Start Server
-app.listen(CONFIG.PORT, () => {
-  console.log(`Gemini proxy server listening on http://localhost:${CONFIG.PORT}`);
-});
+// Export for Vercel
+export default app;
+
+// Start Server if local
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(CONFIG.PORT, () => {
+    console.log(`Gemini proxy server listening on http://localhost:${CONFIG.PORT}`);
+  });
+}
